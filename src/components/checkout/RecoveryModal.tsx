@@ -7,6 +7,7 @@ interface RecoveryModalProps {
   isOpen: boolean
   onClose: () => void
   cartTotal: number
+  errorCode?: string
 }
 
 type AgentStep = 
@@ -16,7 +17,7 @@ type AgentStep =
   | 'RETRYING'
   | 'SUCCESS'
 
-export default function RecoveryModal({ isOpen, onClose, cartTotal }: RecoveryModalProps) {
+export default function RecoveryModal({ isOpen, onClose, cartTotal, errorCode = '504_BANK_TIMEOUT' }: RecoveryModalProps) {
   const [step, setStep] = React.useState<AgentStep>('FAILED')
   const [aiRationale, setAiRationale] = React.useState<string | null>(null)
   const [aiThought, setAiThought] = React.useState<string | null>(null)
@@ -42,7 +43,7 @@ export default function RecoveryModal({ isOpen, onClose, cartTotal }: RecoveryMo
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'recover',
-            errorCode: '504_BANK_TIMEOUT',
+            errorCode,
             cartTotal: `₹${cartTotal}`
           })
         });
@@ -113,7 +114,11 @@ export default function RecoveryModal({ isOpen, onClose, cartTotal }: RecoveryMo
                   {step === 'SUCCESS' && "Payment Recovered!"}
                 </h3>
                 <p className="text-sm text-slate-500 mt-1">
-                  {step === 'FAILED' && "Error: Bank Downtime (Code: 504)"}
+                  {step === 'FAILED' && (
+                    errorCode === 'INSUFFICIENT_FUNDS' ? 'Error: Insufficient card balance' :
+                    errorCode === 'CARD_DECLINED' ? 'Error: Card declined by issuer' :
+                    'Error: Bank Downtime (Code: 504)'
+                  )}
                   {step !== 'FAILED' && step !== 'SUCCESS' && "AI intercepting failure..."}
                   {step === 'SUCCESS' && "Order successfully placed."}
                 </p>
@@ -130,7 +135,11 @@ export default function RecoveryModal({ isOpen, onClose, cartTotal }: RecoveryMo
               {/* Step 1: Failure */}
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-start gap-2">
                  <AlertCircle className="w-4 h-4 text-error-500 mt-0.5 shrink-0" />
-                 <span className="text-error-400">Processing HDFC Credit Card... FAILED</span>
+                 <span className="text-error-400">Processing card payment... {
+                   errorCode === 'INSUFFICIENT_FUNDS' ? 'DECLINED — Insufficient Funds' :
+                   errorCode === 'CARD_DECLINED' ? 'DECLINED — Card Rejected by Issuer' :
+                   'FAILED — Bank Timeout (504)'
+                 }</span>
               </motion.div>
               
               {/* Step 2: Agent Initiation */}
@@ -145,7 +154,7 @@ export default function RecoveryModal({ isOpen, onClose, cartTotal }: RecoveryMo
               {(step === 'ANALYZING' || step === 'RETRYING' || step === 'SUCCESS') && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-start gap-2">
                   <RotateCw className="w-4 h-4 text-slate-400 animate-spin mt-0.5 shrink-0" />
-                  <span>AWS Bedrock analyzing failure code (504)... Context tracking enabled.</span>
+                  <span>AWS Bedrock analyzing failure code ({errorCode})... Context tracking enabled.</span>
                 </motion.div>
               )}
 
