@@ -1,61 +1,118 @@
 "use client";
 
-import { useEffect } from "react";
-import { CheckCircle2, ShieldCheck, ArrowRight } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { CheckCircle2, ArrowRight, ShieldCheck, Zap, BarChart3 } from "lucide-react";
+import Link from "next/link";
 
 export default function PaymentSuccessPage() {
-  // If this rendered inside the Pine Labs iframe, break out and redirect the top window
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-emerald-300 border-t-emerald-600 rounded-full animate-spin" />
+      </div>
+    }>
+      <PaymentSuccessContent />
+    </Suspense>
+  );
+}
+
+function PaymentSuccessContent() {
+  const searchParams = useSearchParams();
+  const ref = searchParams.get("ref");
+  const orderId = searchParams.get("order_id");
+  const [show, setShow] = useState(false);
+
   useEffect(() => {
-    if (window.top !== window.self) {
-      window.top!.location.href = window.location.href;
-    }
+    const t = setTimeout(() => setShow(true), 200);
+    return () => clearTimeout(t);
   }, []);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-emerald-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Decorative gradient blobs */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] opacity-20 bg-[radial-gradient(circle,_var(--tw-gradient-stops))] from-success-600 via-emerald-900 to-transparent blur-3xl rounded-full pointer-events-none" />
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-teal-50 flex items-center justify-center p-6">
+      {/* Background decoration */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-emerald-200/20 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-teal-200/20 rounded-full blur-3xl" />
+      </div>
 
-      <div className="w-full max-w-md animate-in slide-in-from-bottom-8 duration-700 fade-in relative z-10">
-        <Card className="border-0 shadow-2xl shadow-success-900/20 bg-slate-900/80 backdrop-blur-xl rounded-3xl overflow-hidden ring-1 ring-white/10">
-          <div className="bg-gradient-to-r from-success-500 to-success-400 h-2 w-full" />
-          <CardContent className="pt-12 pb-10 px-8 text-center space-y-8">
-            
-            <div className="flex justify-center animate-in zoom-in-50 duration-700 delay-150">
-              <div className="w-24 h-24 bg-gradient-to-br from-success-900/20 to-slate-900 rounded-2xl shadow-inner border border-success-500/30 flex items-center justify-center relative rotate-3 hover:rotate-0 transition-transform duration-500">
-                <div className="absolute inset-0 bg-success-500 rounded-2xl animate-ping opacity-20" />
-                <CheckCircle2 className="w-12 h-12 text-success-400" />
+      <div className={`relative max-w-md w-full transition-all duration-700 ${show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}>
+        {/* Card */}
+        <div className="bg-white rounded-3xl shadow-2xl shadow-emerald-100 border border-emerald-100 overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-8 text-center relative overflow-hidden">
+            <div className="absolute inset-0 opacity-10">
+              <div className="absolute top-2 right-4 text-6xl">✓</div>
+              <div className="absolute bottom-2 left-4 text-4xl">✓</div>
+            </div>
+            <div className="relative">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+                <CheckCircle2 className="w-10 h-10 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-white mb-1">Payment Successful!</h1>
+              <p className="text-emerald-100 text-sm">Your transaction has been completed</p>
+            </div>
+          </div>
+
+          {/* Details */}
+          <div className="p-6 space-y-4">
+            <div className="bg-slate-50 rounded-2xl border border-slate-100 p-4 space-y-3">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">Status</span>
+                <span className="flex items-center gap-1.5 text-emerald-600 font-semibold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  SUCCESS
+                </span>
+              </div>
+              {ref && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">Order Reference</span>
+                  <span className="font-mono text-xs text-slate-700 font-semibold bg-slate-100 px-2 py-0.5 rounded">{ref}</span>
+                </div>
+              )}
+              {orderId && (
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">Pine Labs Order ID</span>
+                  <span className="font-mono text-xs text-slate-700 font-semibold">{orderId}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">Gateway</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-4 h-4 rounded bg-indigo-600 flex items-center justify-center">
+                    <Zap className="w-2.5 h-2.5 text-white" />
+                  </div>
+                  <span className="font-medium text-slate-800">Pine Labs Online</span>
+                </div>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <h1 className="text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white to-slate-400">Payment Successful</h1>
-              <p className="text-slate-400 text-[15px] leading-relaxed font-medium">
-                Your transaction has been securely processed by Pine Labs. 
-                Your simulated AI order is complete.
-              </p>
+            <div className="flex items-center justify-center gap-1.5 text-xs text-slate-400">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+              Secured by Pine Labs · PCI-DSS Level 1
             </div>
 
-            <div className="p-5 bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-2xl border border-white/5 shadow-inner flex flex-col gap-2 relative overflow-hidden text-left mb-8 group">
-               <ShieldCheck className="absolute -right-4 -bottom-4 w-28 h-28 text-white/5 opacity-50 group-hover:scale-110 transition-transform duration-700" />
-               <div className="relative z-10 font-mono space-y-1.5">
-                 <div className="text-[11px] text-slate-500 uppercase font-bold tracking-widest">Transaction Status</div>
-                 <div className="text-lg flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-success-400 animate-pulse"/> <span className="text-success-400 font-bold tracking-tight">AUTHORIZED</span></div>
-               </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Link href="/merchant">
+                <button className="w-full h-11 border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium rounded-xl flex items-center justify-center gap-2 transition-all text-sm group">
+                  <BarChart3 className="w-4 h-4" />
+                  Dashboard
+                </button>
+              </Link>
+              <Link href="/">
+                <button className="w-full h-11 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-all text-sm shadow-lg shadow-emerald-100 group">
+                  Shop Again
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              </Link>
             </div>
+          </div>
+        </div>
 
-            <Button 
-               onClick={() => window.location.href = "/"}
-               className="w-full text-lg font-bold h-14 bg-gradient-to-r from-brand-600 to-brand-500 hover:from-brand-500 hover:to-brand-400 shadow-xl shadow-brand-900/50 text-white group rounded-xl border-0 ring-2 ring-brand-500/20"
-            >
-              Return to Checkout
-              <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform duration-300" />
-            </Button>
-            
-          </CardContent>
-        </Card>
+        {/* AI Recovery note */}
+        <div className="mt-4 text-center text-xs text-slate-400">
+          Powered by Pine Labs AI · Autonomous Payment Recovery Agent
+        </div>
       </div>
     </div>
   );

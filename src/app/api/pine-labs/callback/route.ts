@@ -1,36 +1,112 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { getOrderById, updateOrderStatus } from "@/lib/dynamodb";
 
 /**
  * POST /api/pine-labs/callback
- * Pine Labs redirects the user here alongside a form POST containing the payment status.
- * Since Next.js pages cannot directly accept POST requests, we catch it here and 302 redirect to our success/failure page.
+ *
+ * Pine Labs redirects the user here with a form POST after payment.
+ * We parse the status from the payload, update DynamoDB, and redirect.
+ *
+ * Pine Labs sends application/x-www-form-urlencoded with fields like:
+ *   - plural_order_id
+ *   - merchant_order_reference
+ *   - order_status  (e.g. "PROCESSED", "FAILED", "CANCELLED")
+ *   - response_code (200 = success)
+ *   - response_message
  */
 export async function POST(req: Request) {
-  try {
-    // Pine Labs sends form data (application/x-www-form-urlencoded)
-    const formData = await req.formData();
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    
-    // Convert FormData to a standard object for debugging if needed
-    const payload = Object.fromEntries(formData.entries());
-    console.log('[Pine Labs Callback] Received Payload:', payload);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-    // Pine Labs typically sends 'dia_secret' and 'dia_secret_type' or response payload.
-    // The actual status code comes from the payload.
-    // Let's assume a generic success redirect for now. If you want, you can parse the precise response here.
-    
-    // Redirect cleanly to the frontend React page
-    // You can parse payload 'status' here if you want to branch failure/success.
-    return NextResponse.redirect(`${appUrl}/payment/success`, 302);
-    
+  try {
+    const url = new URL(req.url);
+    const ref = url.searchParams.get("ref") || "";
+
+    // Pine Labs sends form-encoded data
+    const formData = await req.formData();
+    const payload = Object.fromEntries(formData.entries());
+    console.log("[Pine Labs Callback] Payload:", JSON.stringify(payload, null, 2));
+
+    const orderStatus = (payload.order_status as string || "").toUpperCase();
+    const responseCode = String(payload.response_code || "");
+    const pluralOrderId = (payload.plural_order_id as string) || "";
+
+    const isSuccess =
+      orderStatus === "PROCESSED" ||
+      orderStatus === "COMPLETED" ||
+      responseCode === "200";
+
+    // ── Update DynamoDB ───────────────────────────────────────────────────────
+    if (pluralOrderId) {
+      try {
+        const existing = await getOrderById(pluralOrderId);
+        if (existing) {
+          await updateOrderStatus(
+            pluralOrderId,
+            existing.createdAt,
+            isSuccess ? "PROCESSED" : "FAILED",
+            { pluralOrderId }
+          );
+        }
+      } catch (dbErr) {
+        console.warn("[DynamoDB] Failed to update order status (non-fatal):", dbErr);
+      }
+    }
+
+    const redirectBase = isSuccess
+      ? `${appUrl}/payment/success`
+      : `${appUrl}/payment/failure`;
+
+    const params = new URLSearchParams();
+    if (ref) params.set("ref", ref);
+    if (pluralOrderId) params.set("order_id", pluralOrderId);
+    if (orderStatus) params.set("status", orderStatus);
+
+    return NextResponse.redirect(
+      `${redirectBase}?${params.toString()}`,
+      302
+    );
   } catch (error) {
-    console.error('Callback parsing error:', error);
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    console.error("[Pine Labs Callback] Error:", error);
     return NextResponse.redirect(`${appUrl}/payment/failure`, 302);
   }
 }
 
-export async function GET(_req: Request) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  return NextResponse.redirect(`${appUrl}/payment/success`, 302);
+/**
+ * GET /api/pine-labs/callback
+ * Some Pine Labs environments redirect via GET. Handle gracefully.
+ */
+export async function GET(req: Request) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const url = new URL(req.url);
+  const ref = url.searchParams.get("ref") || "";
+  const status = (url.searchParams.get("order_status") || "").toUpperCase();
+  const pluralOrderId = url.searchParams.get("plural_order_id") || "";
+
+  // Update DynamoDB on GET callback too
+  if (pluralOrderId) {
+    try {
+      const existing = await getOrderById(pluralOrderId);
+      if (existing) {
+        const isSuccess = status === "PROCESSED" || status === "COMPLETED";
+        await updateOrderStatus(
+          pluralOrderId,
+          existing.createdAt,
+          isSuccess ? "PROCESSED" : "FAILED"
+        );
+      }
+    } catch (dbErr) {
+      console.warn("[DynamoDB] GET callback update failed (non-fatal):", dbErr);
+    }
+  }
+
+  const isSuccess = status === "PROCESSED" || status === "COMPLETED";
+  const redirectBase = isSuccess
+    ? `${appUrl}/payment/success`
+    : `${appUrl}/payment/success`; // Default to success for GET (browser redirect after 3DS)
+
+  const params = new URLSearchParams();
+  if (ref) params.set("ref", ref);
+  if (status) params.set("status", status);
+
+  return NextResponse.redirect(`${redirectBase}?${params.toString()}`, 302);
 }
