@@ -9,17 +9,27 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1006.0",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-slot": "^1.2.4",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.35.2",
+    "lucide-react": "^0.577.0",
     "next": "16.1.6",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
+    "@prisma/client": "^7.5.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.3.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "prisma": "^7.5.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
