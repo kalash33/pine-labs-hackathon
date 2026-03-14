@@ -15,14 +15,24 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 // ─── Client ───────────────────────────────────────────────────────────────────
-const client = new DynamoDBClient({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-    sessionToken: process.env.AWS_SESSION_TOKEN,
-  },
-});
+// On Amplify: use BEDROCK_ACCESS_KEY / BEDROCK_SECRET_KEY (AWS_ prefix is blocked by Amplify)
+// Locally: use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
+const accessKey = process.env.BEDROCK_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID;
+const secretKey = process.env.BEDROCK_SECRET_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+const sessionToken = process.env.BEDROCK_SESSION_TOKEN || process.env.AWS_SESSION_TOKEN;
+const region = process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-east-1";
+
+const clientConfig: ConstructorParameters<typeof DynamoDBClient>[0] = { region };
+
+if (accessKey && secretKey) {
+  clientConfig.credentials = {
+    accessKeyId: accessKey,
+    secretAccessKey: secretKey,
+    ...(sessionToken ? { sessionToken } : {}),
+  };
+}
+
+const client = new DynamoDBClient(clientConfig);
 
 export const docClient = DynamoDBDocumentClient.from(client, {
   marshallOptions: { removeUndefinedValues: true },

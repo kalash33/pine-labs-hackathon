@@ -273,18 +273,28 @@ const selectRecoveryPathTool = tool(
 // ─── LLM Setup ────────────────────────────────────────────────────────────────
 
 function createLLM() {
+  // On Amplify: use BEDROCK_ACCESS_KEY / BEDROCK_SECRET_KEY (AWS_ prefix is blocked)
+  // Locally: use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
+  const accessKey = process.env.BEDROCK_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID;
+  const secretKey = process.env.BEDROCK_SECRET_KEY || process.env.AWS_SECRET_ACCESS_KEY;
+  const sessionToken = process.env.BEDROCK_SESSION_TOKEN || process.env.AWS_SESSION_TOKEN;
+  const region = process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-east-1";
+
+  const explicitCreds = accessKey && secretKey
+    ? {
+        credentials: {
+          accessKeyId: accessKey,
+          secretAccessKey: secretKey,
+          ...(sessionToken ? { sessionToken } : {}),
+        },
+      }
+    : {};
+
   return new ChatBedrockConverse({
-    model: "anthropic.claude-3-haiku-20240307-v1:0",
-    region: process.env.AWS_REGION || "us-east-1",
+    model: "us.anthropic.claude-sonnet-4-6",
+    region,
     maxTokens: 512,
-    ...(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
-      ? {
-          credentials: {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-          },
-        }
-      : {}),
+    ...explicitCreds,
   });
 }
 
