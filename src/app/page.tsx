@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import RecoveryModal from '@/components/checkout/RecoveryModal';
+import PineLabsIframe from '@/components/checkout/PineLabsIframe';
 import Link from 'next/link';
 
 type PaymentMethod = 'card' | 'upi' | 'wallet';
@@ -19,9 +20,15 @@ interface NetworkHealth {
 }
 
 const TEST_CARDS = [
-  { label: '✅ Success', number: '4012001037141112', expiry: '12/26', cvv: '123', hint: 'Simulates a successful payment with 3DS OTP' },
+  // ── Standard UAT cards ──────────────────────────────────────────────────────
+  { label: '✅ Success (HDFC)', number: '4012001037141112', expiry: '12/26', cvv: '123', hint: 'HDFC Visa · Bank healthy · Simulates successful 3DS payment' },
   { label: '❌ Decline', number: '4000000000000002', expiry: '12/26', cvv: '123', hint: 'Card declined → triggers AI Recovery Agent' },
   { label: '❌ Insuf. Funds', number: '4000000000009995', expiry: '12/26', cvv: '123', hint: 'Insufficient funds → AI suggests EMI' },
+  // ── Bank health demo cards ──────────────────────────────────────────────────
+  { label: '🔴 SBI — Outage', number: '1000010000000001', expiry: '12/26', cvv: '123', hint: 'State Bank of India · Bank DOWN → AI warns to use UPI or different card' },
+  { label: '🔴 Federal Bank — Outage', number: '1000030000000001', expiry: '12/26', cvv: '123', hint: 'Federal Bank · Bank DOWN → AI recommends switching payment method' },
+  { label: '🟡 Yes Bank — Degraded', number: '1000300000000001', expiry: '12/26', cvv: '123', hint: 'Yes Bank · Intermittent issues (58% success) → AI warns high failure risk' },
+  { label: '🟡 Punjab National — Degraded', number: '5081600000000000', expiry: '12/26', cvv: '123', hint: 'Punjab National Bank · Degraded → AI suggests UPI or HDFC/ICICI card' },
 ];
 
 const FAIL_CARD_PREFIXES = ['4000000000000002', '4000000000009995'];
@@ -59,6 +66,22 @@ export default function CheckoutPage() {
   const [showTestCards, setShowTestCards] = useState(false);
   const [upiId, setUpiId] = useState('');
 
+  // BIN lookup + AI bank health state
+  const [binInfo, setBinInfo] = useState<{
+    found: boolean; issuer?: string; brand?: string; type?: string;
+    bankHealth: 'online' | 'degraded' | 'down';
+    bankHealthMessage: string; successProbability: number;
+  } | null>(null);
+  const [bankWarning, setBankWarning] = useState<{
+    recommendation: string; alternatives: string[]; rationale: string;
+    risk_level: string;
+  } | null>(null);
+  const [binLoading, setBinLoading] = useState(false);
+
+  // Pine Labs iframe state (used for wallet)
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+  const [iframeMethodLabel, setIframeMethodLabel] = useState('');
+
   const cartTotal = 4500;
   const cardNet = detectCardNetwork(cardNumber);
 
@@ -72,6 +95,53 @@ export default function CheckoutPage() {
       .then(d => setTimeout(() => setSmartTender(d), 600))
       .catch(console.error);
   }, []);
+
+  // BIN lookup — fires when card number reaches 6+ digits
+  useEffect(() => {
+    const raw = cardNumber.replace(/\s/g, '');
+    if (activeMethod !== 'card' || raw.length < 6) {
+      setBinInfo(null);
+      setBankWarning(null);
+      return;
+    }
+    const bin = raw.slice(0, 6);
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setBinLoading(true);
+      try {
+        const res = await fetch('/api/pine-labs/bin-lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cardNumber: bin }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        setBinInfo(data);
+        // Only call AI if bank is degraded or down
+        if (data.bankHealth !== 'online' && data.issuer) {
+          const aiRes = await fetch('/api/bedrock', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'bank_health_check',
+              issuer: data.issuer,
+              bankHealth: data.bankHealth,
+              successProbability: data.successProbability,
+              cartTotal: `₹${cartTotal.toLocaleString('en-IN')}`,
+              bin,
+            }),
+          });
+          const aiData = await aiRes.json();
+          if (!cancelled) setBankWarning(aiData);
+        } else {
+          setBankWarning(null);
+        }
+      } catch { /* silent */ } finally {
+        if (!cancelled) setBinLoading(false);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [cardNumber, activeMethod, cartTotal]);
 
   useEffect(() => {
     setNetworkHealth({ status: 'scanning', message: 'Agent analyzing routing tables...' });
@@ -95,6 +165,8 @@ export default function CheckoutPage() {
 
   const handlePayment = async () => {
     setPaymentError(null);
+
+    // ── Failure simulation for card / UPI ────────────────────────────────────
     if (activeMethod === 'card') {
       const raw = cardNumber.replace(/\s/g, '');
       const isInsuf = raw.startsWith('40000000000099');
@@ -105,7 +177,50 @@ export default function CheckoutPage() {
         setTimeout(() => { setIsProcessing(false); setShowRecovery(true); }, 2000);
         return;
       }
+    } else if (activeMethod === 'upi') {
+      if (upiId === 'fail@upi') {
+        setIsProcessing(true);
+        setRecoveryErrorCode('UPI_TIMEOUT');
+        setTimeout(() => { setIsProcessing(false); setShowRecovery(true); }, 2000);
+        return;
+      }
     }
+
+    // ── Wallet → Pine Labs IFRAME ─────────────────────────────────────────────
+    if (activeMethod === 'wallet') {
+      setPaymentLoading(true);
+      try {
+        const res = await fetch('/api/pine-labs/create-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: cartTotal,
+            customerName: 'Demo Customer',
+            customerEmail: 'test@pinelabs.demo',
+            customerPhone: '9999999999',
+            description: 'AI Checkout Optimizer — Pine Labs Hackathon',
+            activeMethod,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.details || data.error || 'Failed to create order');
+
+        // Pine Labs returns redirect_url for IFRAME mode
+        const url = data.redirect_url;
+        if (!url) throw new Error('Pine Labs did not return a redirect_url for iframe');
+
+        const label = activeMethod === 'wallet' ? 'Wallet' : 'Net Banking';
+        setIframeMethodLabel(label);
+        setIframeUrl(url);
+      } catch (err) {
+        setPaymentError(err instanceof Error ? err.message : 'Failed to open payment page.');
+      } finally {
+        setPaymentLoading(false);
+      }
+      return;
+    }
+
+    // ── Card & UPI → Pine Labs Seamless API ───────────────────────────────────
     setPaymentLoading(true);
     try {
       const res = await fetch('/api/pine-labs/create-payment', {
@@ -149,7 +264,9 @@ export default function CheckoutPage() {
     ? cardNumber.length > 14 && cardExpiry.length === 5 && cardCvv.length >= 3 && cardName.length > 2
     : activeMethod === 'upi'
       ? upiId.trim().length > 3 && upiId.includes('@')
-      : activeMethod === 'wallet';
+      : activeMethod === 'wallet'
+        ? true  // Pine Labs iframe handles selection — no pre-selection needed
+        : false;
 
   const isFailureCard = FAIL_CARD_PREFIXES.some(p => cardNumber.replace(/\s/g, '').startsWith(p.slice(0, 8)));
 
@@ -275,8 +392,8 @@ export default function CheckoutPage() {
                             <p className="text-[11px] text-slate-600 mt-1">{card.hint}</p>
                           </button>
                         ))}
-                      </div>
-                    )}
+                          </div>
+                        )}
 
                     {/* Card Number */}
                     <div className="relative">
@@ -311,6 +428,64 @@ export default function CheckoutPage() {
                         <span>This UAT test card will simulate a payment failure and trigger the AI Recovery Agent.</span>
                       </div>
                     )}
+
+                    {/* BIN lookup result */}
+                    {binLoading && cardNumber.replace(/\s/g, '').length >= 6 && (
+                      <div className="flex items-center gap-2 p-3 bg-white/[0.02] border border-white/8 rounded-xl text-xs text-slate-400">
+                        <div className="w-3.5 h-3.5 border border-indigo-500/40 border-t-indigo-400 rounded-full animate-spin shrink-0" />
+                        <span>AI scanning bank health for BIN {cardNumber.replace(/\s/g, '').slice(0, 6)}...</span>
+                      </div>
+                    )}
+
+                    {/* Bank identified — healthy */}
+                    {!binLoading && binInfo?.found && binInfo.bankHealth === 'online' && (
+                      <div className="flex items-center gap-2 p-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl text-xs text-emerald-400">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>
+                          <span className="font-semibold">{binInfo.issuer}</span>
+                          {binInfo.type && <span className="text-emerald-500/70"> · {binInfo.type}</span>}
+                          {' '}— Network healthy · {binInfo.successProbability}% success rate
+                        </span>
+                      </div>
+                    )}
+
+                    {/* AI Bank Health Warning */}
+                    {!binLoading && bankWarning && binInfo && binInfo.bankHealth !== 'online' && (
+                      <div className={`p-3.5 rounded-xl border space-y-2 ${
+                        binInfo.bankHealth === 'down'
+                          ? 'bg-red-500/8 border-red-500/25'
+                          : 'bg-amber-500/8 border-amber-500/25'
+                      }`}>
+                        <div className="flex items-start gap-2">
+                          <Brain className={`w-4 h-4 shrink-0 mt-0.5 ${binInfo.bankHealth === 'down' ? 'text-red-400' : 'text-amber-400'}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className={`text-xs font-bold mb-0.5 ${binInfo.bankHealth === 'down' ? 'text-red-300' : 'text-amber-300'}`}>
+                              AI Bank Health Alert · {binInfo.issuer}
+                              <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full font-semibold border ${
+                                binInfo.bankHealth === 'down'
+                                  ? 'bg-red-500/15 border-red-500/30 text-red-400'
+                                  : 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                              }`}>
+                                {binInfo.bankHealth === 'down' ? 'OUTAGE' : 'DEGRADED'} · {binInfo.successProbability}%
+                              </span>
+                            </div>
+                            <p className={`text-[11px] leading-relaxed ${binInfo.bankHealth === 'down' ? 'text-red-400/80' : 'text-amber-400/80'}`}>
+                              {bankWarning.rationale}
+                            </p>
+                          </div>
+                        </div>
+                        {bankWarning.alternatives.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 pt-1">
+                            <span className="text-[10px] text-slate-500 self-center">Try instead:</span>
+                            {bankWarning.alternatives.map((alt, i) => (
+                              <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-slate-300 font-medium">
+                                {alt}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -326,17 +501,25 @@ export default function CheckoutPage() {
                   </div>
                 )}
 
-                {/* Wallet */}
+                {/* Wallet — Pine Labs hosted iframe */}
                 {!paymentLoading && activeMethod === 'wallet' && (
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {['Amazon Pay', 'Paytm', 'PhonePe', 'MobiKwik'].map(w => (
-                      <div key={w} className="flex items-center gap-2.5 p-3 border border-white/8 rounded-xl hover:border-indigo-500/40 bg-white/[0.02] cursor-pointer transition-all hover:bg-white/[0.04]">
-                        <Wallet className="w-4 h-4 text-indigo-400" />
-                        <span className="text-sm font-medium text-slate-300">{w}</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-4 bg-indigo-500/8 border border-indigo-500/20 rounded-xl">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-500/20 flex items-center justify-center shrink-0">
+                        <Wallet className="w-5 h-5 text-indigo-400" />
                       </div>
-                    ))}
+                      <div>
+                        <p className="text-sm font-semibold text-white">Pine Labs Hosted Wallet Checkout</p>
+                        <p className="text-xs text-slate-400 mt-0.5">Click Pay to open the secure Pine Labs checkout. Select your wallet (Amazon Pay, Paytm, PhonePe &amp; more) inside.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      Wallet credentials are entered directly on Pine Labs — we never see them.
+                    </div>
                   </div>
                 )}
+
               </CardContent>
 
               {/* AI Network Radar */}
@@ -438,7 +621,7 @@ export default function CheckoutPage() {
                 ) : (
                   <Button
                     className={`w-full h-12 text-sm font-bold group transition-all duration-200 rounded-xl border-0 shadow-lg ${
-                      isFailureCard && activeMethod === 'card'
+                      (isFailureCard && activeMethod === 'card') || (activeMethod === 'upi' && upiId === 'fail@upi')
                         ? 'bg-gradient-to-r from-red-600 to-red-500 hover:from-red-500 hover:to-red-400 text-white shadow-red-900/40'
                         : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-indigo-900/40'
                     }`}
@@ -478,6 +661,15 @@ export default function CheckoutPage() {
           onClose={() => setShowRecovery(false)}
           cartTotal={cartTotal}
           errorCode={recoveryErrorCode}
+        />
+      )}
+
+      {/* Pine Labs hosted iframe — shown for Wallet & Net Banking */}
+      {iframeUrl && (
+        <PineLabsIframe
+          iframeUrl={iframeUrl}
+          methodLabel={iframeMethodLabel}
+          onClose={() => setIframeUrl(null)}
         />
       )}
     </div>
