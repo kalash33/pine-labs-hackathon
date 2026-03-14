@@ -3,8 +3,11 @@
 // Docs: https://developer.pinelabsonline.com
 
 const BASE_URL = process.env.PINELABS_BASE_URL || 'https://pluraluat.v2.pinepg.in/api';
-const CLIENT_ID = process.env.PINELABS_CLIENT_ID!;
-const CLIENT_SECRET = process.env.PINELABS_CLIENT_SECRET!;
+
+// Read credentials inside functions (not at module level) to ensure
+// they are always resolved from the current process.env at call time.
+function getClientId() { return process.env.PINELABS_CLIENT_ID || ''; }
+function getClientSecret() { return process.env.PINELABS_CLIENT_SECRET || ''; }
 
 export interface PineLabsToken {
   access_token: string;
@@ -75,8 +78,8 @@ export async function generateToken(): Promise<PineLabsToken> {
       'Accept': 'application/json',
     },
     body: JSON.stringify({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: getClientId(),
+      client_secret: getClientSecret(),
       grant_type: 'client_credentials',
     }),
   });
