@@ -1,4 +1,4 @@
-/**
+/**a
  * ─────────────────────────────────────────────────────────────────────────────
  * Pine Labs Autonomous Payment Recovery Agent
  * Built with LangChain + AWS Bedrock (Claude 3 Haiku)
@@ -111,6 +111,15 @@ const analyzeFailureTool = tool(
         "Transaction flagged by risk engine. UPI (bank-verified) reduces fraud score significantly.",
       LIMIT_EXCEEDED:
         "Daily/monthly card limit hit. EMI restructures amount below limit thresholds.",
+      // UPI-specific failures
+      UPI_TIMEOUT:
+        "UPI gateway timed out — the bank's UPI server did not respond within 30s. UPI rail is unavailable. Card or Wallet are unaffected.",
+      UPI_BLOCKED:
+        "UPI ID is blocked by the issuing bank. This VPA cannot process payments. Card or Wallet are the only alternatives.",
+      UPI_INVALID_VPA:
+        "Virtual Payment Address (VPA) is not registered with any bank. Verify the UPI ID or switch to Card/Wallet.",
+      UPI_LIMIT_EXCEEDED:
+        "UPI daily transaction limit (₹1,00,000) has been reached. EMI or Card can process this amount without UPI limits.",
     };
     return (
       failureMap[error_code] ||
@@ -192,6 +201,24 @@ const scorePaymentRailsTool = tool(
       RETRY_CARD: 20,
     };
 
+    // UPI-originated failures — penalize UPI heavily, boost Card/Wallet
+    if (error_code === "UPI_TIMEOUT") {
+      scores.UPI = 10;
+      scores.WALLET += 25;
+      scores.RETRY_CARD += 30; // retry with card
+    }
+    if (error_code === "UPI_BLOCKED" || error_code === "UPI_INVALID_VPA") {
+      scores.UPI = 5;
+      scores.RETRY_CARD += 35;
+      scores.WALLET += 20;
+    }
+    if (error_code === "UPI_LIMIT_EXCEEDED") {
+      scores.UPI = 15;
+      scores.EMI += 30;
+      scores.BNPL += 25;
+    }
+
+    // Card-originated failures — boost UPI
     if (error_code === "INSUFFICIENT_FUNDS" || error_code === "LIMIT_EXCEEDED") {
       scores.EMI += 25;
       scores.BNPL += 20;
@@ -207,7 +234,7 @@ const scorePaymentRailsTool = tool(
     }
 
     const methods = saved_methods.toLowerCase();
-    if (methods.includes("upi")) scores.UPI += 10;
+    if (methods.includes("upi") && scores.UPI > 50) scores.UPI += 10;
     if (methods.includes("wallet")) scores.WALLET += 10;
     if (loyalty_points > 200) scores.WALLET += 8;
 
@@ -250,6 +277,11 @@ const selectRecoveryPathTool = tool(
       FRAUD_SUSPECTED: { strategy: "UPI", confidence: 87 },
       NETWORK_TIMEOUT: { strategy: "RETRY", confidence: 72 },
       "3DS_FAILURE": { strategy: "UPI", confidence: 91 },
+      // UPI-originated — never suggest UPI
+      UPI_TIMEOUT: { strategy: "WALLET", confidence: 88 },
+      UPI_BLOCKED: { strategy: "RETRY_CARD", confidence: 92 },
+      UPI_INVALID_VPA: { strategy: "RETRY_CARD", confidence: 90 },
+      UPI_LIMIT_EXCEEDED: { strategy: "EMI", confidence: 87 },
     };
 
     const mapped = strategyMap[error_code];
@@ -428,6 +460,35 @@ function getMockRecovery(
       rationale: "Bank timeout on card network. UPI has 99.8% uptime right now — routing autonomously.",
       recovery_strategy: "UPI",
       confidence: 92,
+    },
+    // ── UPI-originated failures — never suggest UPI ──────────────────────────
+    UPI_TIMEOUT: {
+      thought_process: "UPI gateway timed out (30s). Bank's UPI server is unreachable. Rail scores: WALLET:90, RETRY_CARD:50, UPI:10. Switching to Wallet.",
+      suggestion: "Wallet / Card",
+      rationale: "Your UPI payment timed out (bank server unreachable). Pay instantly with Wallet (Amazon Pay / Paytm) or retry with a Card — both have 98%+ success right now.",
+      recovery_strategy: "WALLET",
+      confidence: 88,
+    },
+    UPI_BLOCKED: {
+      thought_process: "UPI ID is blocked by the issuing bank. VPA cannot process any payments. Rail scores: RETRY_CARD:55, WALLET:85, UPI:5. Switching to Card.",
+      suggestion: "Credit / Debit Card",
+      rationale: "Your UPI ID has been blocked by your bank (error: VPA_BLOCKED). Use a Credit or Debit Card to complete this ₹4,500 payment — 92% success probability.",
+      recovery_strategy: "RETRY",
+      confidence: 92,
+    },
+    UPI_INVALID_VPA: {
+      thought_process: "VPA not registered with any bank. UPI ID does not exist. Rail scores: RETRY_CARD:55, WALLET:85, UPI:5. Switching to Card.",
+      suggestion: "Credit / Debit Card",
+      rationale: "UPI ID not found — this VPA is not registered with any bank. Please use a Card or Wallet to complete your payment.",
+      recovery_strategy: "RETRY",
+      confidence: 90,
+    },
+    UPI_LIMIT_EXCEEDED: {
+      thought_process: "UPI daily limit of ₹1,00,000 reached. EMI splits the amount below UPI thresholds. Rail scores: EMI:100, BNPL:85, UPI:15.",
+      suggestion: "3-Month EMI",
+      rationale: "Your UPI daily limit (₹1,00,000) is exhausted. Split this ₹4,500 into 3 easy EMI payments of ₹1,500/month — no UPI limit applies.",
+      recovery_strategy: "EMI",
+      confidence: 87,
     },
   };
 
