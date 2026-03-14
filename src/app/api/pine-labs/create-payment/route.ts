@@ -28,6 +28,8 @@ export async function POST(req: Request) {
       customerPhone,
       description,
       upiId,
+      walletCode,
+      payCode,
     } = body;
 
     if (!amount || Number(amount) <= 0) {
@@ -79,9 +81,10 @@ export async function POST(req: Request) {
     }
 
     // ── Step 2: Create Payment ────────────────────────────────────────────────
-    let paymentMethod: "CARD" | "UPI" | "WALLET" = "CARD";
+    let paymentMethod: "CARD" | "UPI" | "WALLET" | "NETBANKING" = "CARD";
     if (activeMethod === "upi") paymentMethod = "UPI";
     else if (activeMethod === "wallet") paymentMethod = "WALLET";
+    else if (activeMethod === "netbanking") paymentMethod = "NETBANKING";
 
     const merchantPaymentRef = `PAY_${Date.now()}`;
 
@@ -93,6 +96,8 @@ export async function POST(req: Request) {
       paymentMethod,
       cardDetails: paymentMethod === "CARD" ? cardDetails : undefined,
       upiId: paymentMethod === "UPI" ? (upiId || "test@paytm") : undefined,
+      walletCode: paymentMethod === "WALLET" ? (walletCode || "AMAZON") : undefined,
+      payCode: paymentMethod === "NETBANKING" ? (payCode || "NB1493") : undefined,
     });
 
     // ── Step 3: Extract challenge_url ─────────────────────────────────────────

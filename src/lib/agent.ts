@@ -72,6 +72,24 @@ export interface SmartTenderOutput {
   fallback: boolean;
 }
 
+export interface BankHealthInput {
+  issuer: string;
+  bankHealth: "online" | "degraded" | "down";
+  successProbability: number;
+  cartTotal: string;
+  bin: string;
+}
+
+export interface BankHealthOutput {
+  thought_process: string;
+  risk_level: "low" | "medium" | "high" | "critical";
+  recommendation: string;        // e.g. "Switch to UPI" or "Use a different card"
+  alternatives: string[];        // e.g. ["UPI", "HDFC Card", "Wallet"]
+  rationale: string;             // user-facing 1-sentence explanation
+  should_warn: boolean;          // true if we should show a warning to the user
+  fallback: boolean;
+}
+
 // ─── LangChain Tools ──────────────────────────────────────────────────────────
 
 const analyzeFailureTool = tool(
@@ -570,5 +588,117 @@ Output JSON with exactly these keys:
   } catch (err) {
     console.warn("[SmartTender] LLM unavailable:", err instanceof Error ? err.message : err);
     return getMockSmartTender(cartTotal);
+  }
+}
+
+// ─── Bank Health Agent ────────────────────────────────────────────────────────
+
+function getMockBankHealth(input: BankHealthInput): BankHealthOutput {
+  const { issuer, bankHealth, successProbability } = input;
+
+  if (bankHealth === "down") {
+    return {
+      thought_process: `${issuer} is completely unreachable. Card transactions will fail 100% of the time. Immediate switch required.`,
+      risk_level: "critical",
+      recommendation: "Switch to UPI",
+      alternatives: ["UPI (GPay / PhonePe)", "Wallet", "Different Card (HDFC / ICICI)"],
+      rationale: `${issuer} is currently down. Use UPI or a card from a different bank to complete your payment.`,
+      should_warn: true,
+      fallback: true,
+    };
+  }
+
+  if (bankHealth === "degraded") {
+    return {
+      thought_process: `${issuer} is experiencing intermittent issues with ${successProbability}% success rate. High risk of failure. Recommend switching to a more reliable rail.`,
+      risk_level: "high",
+      recommendation: "Use UPI or different card",
+      alternatives: ["UPI (GPay / PhonePe)", "HDFC / ICICI Card", "Wallet"],
+      rationale: `${issuer} is having issues right now (${successProbability}% success rate). Switch to UPI or a different bank's card for a smoother experience.`,
+      should_warn: true,
+      fallback: true,
+    };
+  }
+
+  return {
+    thought_process: `${issuer} is fully operational with ${successProbability}% success rate. No action needed.`,
+    risk_level: "low",
+    recommendation: "Proceed with this card",
+    alternatives: [],
+    rationale: `${issuer} is healthy. Your payment should go through smoothly.`,
+    should_warn: false,
+    fallback: true,
+  };
+}
+
+/**
+ * Bank Health Agent: assesses issuing bank health from BIN lookup
+ * and recommends alternative payment methods if the bank is down/degraded.
+ */
+export async function runBankHealthAgent(input: BankHealthInput): Promise<BankHealthOutput> {
+  if (input.bankHealth === "online") {
+    return getMockBankHealth(input);
+  }
+
+  try {
+    const llm = createLLM();
+
+    const systemPrompt = `You are a Payment Risk Advisor for Pine Labs checkout.
+A customer is about to pay with a card from a bank that is experiencing issues.
+Assess the risk and recommend the best alternative payment method.
+Respond with ONLY valid JSON — no markdown, no extra text.`;
+
+    const userMessage = `Bank: ${input.issuer}
+Health Status: ${input.bankHealth}
+Success Probability: ${input.successProbability}%
+Cart Total: ${input.cartTotal}
+BIN: ${input.bin}
+
+Output JSON with exactly these keys:
+{
+  "thought_process": "<1 sentence: why this is risky>",
+  "risk_level": "<low|medium|high|critical>",
+  "recommendation": "<1-4 word action>",
+  "alternatives": ["<option1>", "<option2>", "<option3>"],
+  "rationale": "<1 sentence user-facing warning and suggestion>",
+  "should_warn": <true|false>
+}`;
+
+    const response = await llm.invoke([
+      new SystemMessage(systemPrompt),
+      new HumanMessage(userMessage),
+    ]);
+
+    const text = typeof response.content === "string"
+      ? response.content
+      : JSON.stringify(response.content);
+
+    const start = text.indexOf("{");
+    if (start !== -1) {
+      let depth = 0;
+      for (let i = start; i < text.length; i++) {
+        if (text[i] === "{") depth++;
+        else if (text[i] === "}") {
+          depth--;
+          if (depth === 0) {
+            const parsed = JSON.parse(text.slice(start, i + 1));
+            return {
+              thought_process: parsed.thought_process,
+              risk_level: parsed.risk_level || "high",
+              recommendation: parsed.recommendation,
+              alternatives: parsed.alternatives || [],
+              rationale: parsed.rationale,
+              should_warn: parsed.should_warn ?? true,
+              fallback: false,
+            };
+          }
+        }
+      }
+    }
+
+    return getMockBankHealth(input);
+  } catch (err) {
+    console.warn("[BankHealthAgent] LLM unavailable:", err instanceof Error ? err.message : err);
+    return getMockBankHealth(input);
   }
 }

@@ -49,9 +49,11 @@ export interface CreatePaymentRequest {
   merchantPaymentReference: string;
   amount: number; // in paise
   currency?: string;
-  paymentMethod: 'CARD' | 'UPI' | 'WALLET';
+  paymentMethod: 'CARD' | 'UPI' | 'WALLET' | 'NETBANKING';
   cardDetails?: CardDetails; // Only required if paymentMethod is CARD
   upiId?: string; // Only required if paymentMethod is UPI
+  walletCode?: string; // Only required if paymentMethod is WALLET
+  payCode?: string; // Only required if paymentMethod is NETBANKING
 }
 
 export interface PineLabsPayment {
@@ -374,7 +376,13 @@ export async function createPayment(paymentData: CreatePaymentRequest): Promise<
   } else if (paymentData.paymentMethod === 'WALLET') {
     paymentPayload.payment_option = {
       wallet_details: {
-        provider_name: 'PAYTM'
+        wallet_code: paymentData.walletCode || 'AMAZON' // Default to AMAZON Pay
+      }
+    };
+  } else if (paymentData.paymentMethod === 'NETBANKING') {
+    paymentPayload.payment_option = {
+      netbanking_details: {
+        pay_code: paymentData.payCode || 'NB1493' // Default test bank
       }
     };
   }
