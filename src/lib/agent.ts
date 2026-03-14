@@ -255,18 +255,26 @@ const selectRecoveryPathTool = tool(
 // ─── LLM Setup ────────────────────────────────────────────────────────────────
 
 function createLLM() {
-  return new ChatBedrockConverse({
-    model: "anthropic.claude-3-haiku-20240307-v1:0",
-    region: process.env.AWS_REGION || "us-east-1",
-    maxTokens: 512,
-    ...(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+  // On Amplify: IAM role provides credentials automatically (no env vars needed)
+  // Locally: use AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_SESSION_TOKEN
+  const explicitCreds =
+    process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
       ? {
           credentials: {
             accessKeyId: process.env.AWS_ACCESS_KEY_ID,
             secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            ...(process.env.AWS_SESSION_TOKEN
+              ? { sessionToken: process.env.AWS_SESSION_TOKEN }
+              : {}),
           },
         }
-      : {}),
+      : {};
+
+  return new ChatBedrockConverse({
+    model: "anthropic.claude-3-haiku-20240307-v1:0",
+    region: process.env.AWS_REGION || "us-east-1",
+    maxTokens: 512,
+    ...explicitCreds,
   });
 }
 

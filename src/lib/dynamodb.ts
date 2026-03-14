@@ -15,14 +15,23 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 // ─── Client ───────────────────────────────────────────────────────────────────
-const client = new DynamoDBClient({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+// On AWS Amplify, credentials come from the IAM service role automatically.
+// Locally, they come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars.
+// We use the default credential provider chain — no explicit credentials needed.
+const clientConfig: ConstructorParameters<typeof DynamoDBClient>[0] = {
+  region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || "us-east-1",
+};
+
+// Only set explicit credentials if running locally (non-Amplify)
+if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
+  clientConfig.credentials = {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
     sessionToken: process.env.AWS_SESSION_TOKEN,
-  },
-});
+  };
+}
+
+const client = new DynamoDBClient(clientConfig);
 
 export const docClient = DynamoDBDocumentClient.from(client, {
   marshallOptions: { removeUndefinedValues: true },
