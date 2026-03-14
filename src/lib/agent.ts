@@ -273,7 +273,7 @@ function createLLM() {
     : {};
 
   return new ChatBedrockConverse({
-    model: "anthropic.claude-sonnet-4-6",
+    model: "us.anthropic.claude-sonnet-4-6",
     region,
     maxTokens: 512,
     ...explicitCreds,
