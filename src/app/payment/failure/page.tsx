@@ -1,73 +1,60 @@
 "use client";
 
-import { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { XCircle, ArrowLeft, RefreshCcw } from 'lucide-react';
-import Link from 'next/link';
+import { useEffect } from "react";
+import { XCircle, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 export default function PaymentFailurePage() {
-  const searchParams = useSearchParams();
-  const ref = searchParams.get('ref');
-  const [showContent, setShowContent] = useState(false);
-
+  // If this rendered inside the Pine Labs iframe, break out and redirect the top window
   useEffect(() => {
-    const timer = setTimeout(() => setShowContent(true), 300);
-    return () => clearTimeout(timer);
+    if (window.top !== window.self) {
+      window.top!.location.href = window.location.href;
+    }
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-orange-50 flex items-center justify-center p-6">
-      <div
-        className={`max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center transition-all duration-700 ${
-          showContent ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-        }`}
-      >
-        {/* Failure Icon */}
-        <div className="flex justify-center mb-6">
-          <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center">
-            <XCircle className="w-10 h-10 text-red-500" />
-          </div>
-        </div>
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-red-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      {/* Decorative gradient blobs */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] opacity-20 bg-[radial-gradient(circle,_var(--tw-gradient-stops))] from-red-600 via-rose-900 to-transparent blur-3xl rounded-full pointer-events-none" />
 
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">Payment Failed</h1>
-        <p className="text-slate-500 mb-6">Your Pine Labs transaction could not be completed.</p>
-
-        {/* Transaction Details */}
-        <div className="bg-slate-50 rounded-xl border border-slate-100 p-4 text-left space-y-3 mb-8">
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-500">Status</span>
-            <span className="text-red-500 font-semibold">FAILED</span>
-          </div>
-          {ref && (
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500">Order Reference</span>
-              <span className="font-mono text-xs text-slate-700 font-medium">{ref}</span>
+      <div className="w-full max-w-md animate-in slide-in-from-bottom-8 duration-700 fade-in relative z-10">
+        <Card className="border-0 shadow-2xl shadow-red-900/20 bg-slate-900/80 backdrop-blur-xl rounded-3xl overflow-hidden ring-1 ring-white/10">
+          <div className="bg-gradient-to-r from-red-500 to-red-600 h-2 w-full" />
+          <CardContent className="pt-12 pb-10 px-8 text-center space-y-8">
+            
+            <div className="flex justify-center animate-in zoom-in-50 duration-700 delay-150">
+              <div className="w-24 h-24 bg-gradient-to-br from-red-900/20 to-slate-900 rounded-2xl shadow-inner border border-red-500/30 flex items-center justify-center relative -rotate-3 hover:rotate-0 transition-transform duration-500">
+                <div className="absolute inset-0 bg-red-500 rounded-2xl animate-ping opacity-20" />
+                <XCircle className="w-12 h-12 text-red-500" />
+              </div>
             </div>
-          )}
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-500">Next Step</span>
-            <span className="text-slate-700 font-medium">Try alternate method</span>
-          </div>
-        </div>
 
-        <p className="text-sm text-slate-500 mb-6">
-          💡 The AI Recovery Agent can automatically route your payment to a higher-success channel.
-        </p>
+            <div className="space-y-3">
+              <h1 className="text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-white to-slate-400">Payment Failed</h1>
+              <p className="text-slate-400 text-[15px] leading-relaxed font-medium">
+                Your transaction could not be processed completely.
+              </p>
+            </div>
 
-        <div className="flex flex-col gap-3">
-          <Link href="/">
-            <button className="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium h-12 rounded-xl flex items-center justify-center gap-2 transition-colors group">
-              <RefreshCcw className="w-4 h-4" />
-              Retry with AI Recovery Agent
-            </button>
-          </Link>
-          <Link href="/">
-            <button className="w-full border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium h-12 rounded-xl flex items-center justify-center gap-2 transition-colors group">
-              <ArrowLeft className="w-4 h-4" />
-              Go Back to Store
-            </button>
-          </Link>
-        </div>
+            <div className="p-5 bg-gradient-to-br from-slate-800/50 to-slate-900/50 rounded-2xl border border-white/5 shadow-inner flex flex-col gap-2 relative overflow-hidden text-left mb-8 group">
+               <AlertTriangle className="absolute -right-4 -bottom-4 w-28 h-28 text-white/5 opacity-50 group-hover:scale-110 transition-transform duration-700" />
+               <div className="relative z-10 font-mono space-y-1.5">
+                 <div className="text-[11px] text-slate-500 uppercase font-bold tracking-widest">Transaction Status</div>
+                 <div className="text-lg flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/> <span className="text-red-500 font-bold tracking-tight">FAILED / TIMEOUT</span></div>
+               </div>
+            </div>
+
+            <Button 
+               onClick={() => window.location.href = "/"}
+               className="w-full text-lg font-bold h-14 bg-gradient-to-r from-slate-800 to-slate-700 hover:from-slate-700 hover:to-slate-600 shadow-xl shadow-black/50 text-white group rounded-xl border-0 ring-1 ring-white/10"
+            >
+              <ArrowLeft className="w-5 h-5 mr-2 group-hover:-translate-x-1 transition-transform duration-300" />
+              Retry Payment
+            </Button>
+            
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

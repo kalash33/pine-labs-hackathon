@@ -22,13 +22,41 @@ export interface CreateOrderRequest {
   customerEmail?: string;
   customerPhone?: string;
   description?: string;
+  integrationMode?: 'REDIRECT' | 'IFRAME';
+  allowedPaymentMethods?: string[];
+  preAuth?: boolean;
 }
 
 export interface PineLabsOrder {
   token?: string;
   order_id?: string;
-  redirect_url: string;
+  redirect_url?: string;
   merchant_order_reference?: string;
+  [key: string]: unknown;
+}
+
+export interface CardDetails {
+  name: string;
+  cardNumber: string;
+  cvv: string;
+  expiryMonth: string;
+  expiryYear: string;
+  registeredMobileNumber?: string;
+}
+
+export interface CreatePaymentRequest {
+  orderId: string;
+  merchantPaymentReference: string;
+  amount: number; // in paise
+  currency?: string;
+  paymentMethod: 'CARD' | 'UPI' | 'WALLET';
+  cardDetails?: CardDetails; // Only required if paymentMethod is CARD
+  upiId?: string; // Only required if paymentMethod is UPI
+}
+
+export interface PineLabsPayment {
+  challenge_url?: string;
+  status: string;
   [key: string]: unknown;
 }
 
@@ -77,7 +105,8 @@ export async function createOrder(orderData: CreateOrderRequest): Promise<PineLa
       value: orderData.amount, // in paise (e.g., 450000 for ₹4500)
       currency: orderData.currency || 'INR',
     },
-    integration_mode: 'REDIRECT',
+    integration_mode: orderData.integrationMode || 'REDIRECT',
+    ...(orderData.allowedPaymentMethods && { allowed_payment_methods: orderData.allowedPaymentMethods }),
     purchase_details: {
       customer: {
         email_id: orderData.customerEmail || 'customer@example.com',
@@ -92,6 +121,7 @@ export async function createOrder(orderData: CreateOrderRequest): Promise<PineLa
       },
     },
     callback_url: orderData.callbackUrl,
+    failure_callback_url: orderData.failureCallbackUrl,
   };
 
   console.log('[Pine Labs] Creating order:', JSON.stringify(payload, null, 2));
@@ -122,4 +152,75 @@ export async function createOrder(orderData: CreateOrderRequest): Promise<PineLa
  */
 export function generateOrderRef(): string {
   return `ORDER_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
+}
+
+/**
+ * Step 3: Create Payment (Seamless Checkout API)
+ */
+export async function createPayment(paymentData: CreatePaymentRequest): Promise<PineLabsPayment> {
+  // First get the token
+  const tokenData = await generateToken();
+
+  const url = `${BASE_URL}/pay/v1/orders/${paymentData.orderId}/payments`;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const paymentPayload: any = {
+    merchant_payment_reference: paymentData.merchantPaymentReference,
+    payment_method: paymentData.paymentMethod,
+    payment_amount: {
+      value: paymentData.amount,
+      currency: paymentData.currency || 'INR',
+    },
+  };
+
+  if (paymentData.paymentMethod === 'CARD' && paymentData.cardDetails) {
+    paymentPayload.payment_option = {
+      card_details: {
+        name: paymentData.cardDetails.name,
+        card_number: paymentData.cardDetails.cardNumber,
+        cvv: paymentData.cardDetails.cvv,
+        expiry_month: paymentData.cardDetails.expiryMonth,
+        expiry_year: paymentData.cardDetails.expiryYear,
+        ...(paymentData.cardDetails.registeredMobileNumber && { registered_mobile_number: paymentData.cardDetails.registeredMobileNumber })
+      }
+    };
+  } else if (paymentData.paymentMethod === 'UPI') {
+    paymentPayload.payment_option = {
+      upi_details: {
+        vpa: paymentData.upiId || 'test@paytm'
+      }
+    };
+  } else if (paymentData.paymentMethod === 'WALLET') {
+    paymentPayload.payment_option = {
+      wallet_details: {
+        provider_name: 'PAYTM'
+      }
+    };
+  }
+
+  const payload = {
+    payments: [paymentPayload]
+  };
+
+  console.log('[Pine Labs] Creating payment:', JSON.stringify(payload, null, 2));
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${tokenData.access_token}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const responseText = await response.text();
+  console.log(`[Pine Labs] Payment response [${response.status}]:`, responseText);
+
+  if (!response.ok) {
+    throw new Error(`Pine Labs Payment Error [${response.status}]: ${responseText}`);
+  }
+
+  const data = JSON.parse(responseText);
+  return data as PineLabsPayment;
 }
