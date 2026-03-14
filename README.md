@@ -219,12 +219,6 @@ NEXT_PUBLIC_APP_URL      = https://main.d215n88cbpvrt6.amplifyapp.com
 
 ---
 
-## 👥 Team
-
-- **Kalash Poddar** — Full Stack + AI Integration
-
----
-
 ## 📄 License
 
 MIT — Built for Pine Labs Playground AI Hackathon 2026
